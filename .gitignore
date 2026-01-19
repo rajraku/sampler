@@ -1,0 +1,4 @@
+client/client_app
+client/*.o
+server/server_app
+server/*.o
