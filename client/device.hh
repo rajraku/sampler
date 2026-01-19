@@ -1,3 +1,6 @@
+#ifndef DEVICE_HH
+#define DEVICE_HH
+
 #include <string>
 #include <atomic>
 #include <condition_variable>
@@ -57,3 +60,5 @@ private:
 
     std::mutex device_mutex;
 };
+
+#endif // DEVICE_HH

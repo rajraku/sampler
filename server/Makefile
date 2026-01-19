@@ -1,7 +1,7 @@
 
 CC = g++
 
-CFLAGS = -Wall -Wextra -g -std=c++26 -fPIC -fPIE
+CFLAGS = -Wall -Wextra -g -std=c++20 -fPIC -fPIE
 
 LINKFLAGS = -pthread
 
