@@ -5,9 +5,9 @@ CFLAGS = -Wall -Wextra -g -std=c++26 -fPIC -fPIE
 
 LINKFLAGS = -pthread
 
-TARGET = client_app
+TARGET = server_app
 
-SOURCES = device.cc main.cc
+SOURCES = main.cc
 OBJECTS = $(SOURCES:.cc=.o)
 
 

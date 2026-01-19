@@ -107,6 +107,7 @@ Device::send_telemetry_data()
         std::this_thread::sleep_for(std::chrono::seconds(2));
 
         // Send telemetry data logic..
+        // TODO:: Add logic to send the data to server using http client..
         std::cout << "Sending telemetry data: "
                   << name << " - "
                   << "Speed: " << speed
