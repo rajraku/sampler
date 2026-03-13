@@ -1,8 +1,16 @@
 import { useSSE } from '../hooks/useSSE';
 import { SensorCard } from './SensorCard';
+import type { SensorData } from '../types/sensor';
 
 export function Dashboard() {
   const { data, connected, error } = useSSE();
+
+  // Group sensors by device_name
+  const byDevice: Record<string, SensorData[]> = {};
+  for (const sensor of Object.values(data)) {
+    if (!byDevice[sensor.device_name]) byDevice[sensor.device_name] = [];
+    byDevice[sensor.device_name].push(sensor);
+  }
 
   return (
     <div style={{ padding: '20px', fontFamily: 'system-ui, sans-serif' }}>
@@ -38,16 +46,16 @@ export function Dashboard() {
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-        gap: '16px'
+        gridTemplateColumns: 'repeat(auto-fill, minmax(min(220px, 100%), 1fr))',
+        gap: '32px'
       }}>
-        {Object.values(data).length === 0 ? (
+        {Object.keys(byDevice).length === 0 ? (
           <div style={{ color: '#6b7280', padding: '20px' }}>
             Waiting for sensor data...
           </div>
         ) : (
-          Object.values(data).map(sensor => (
-            <SensorCard key={sensor.sensor_id} sensor={sensor} />
+          Object.entries(byDevice).map(([deviceName, sensors]) => (
+            <SensorCard key={deviceName} deviceName={deviceName} sensors={sensors} />
           ))
         )}
       </div>

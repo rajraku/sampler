@@ -3,3 +3,4 @@ client/*.o
 server/server_app
 server/*.o
 SESSION_NOTES.md
+.claude/settings.local.json

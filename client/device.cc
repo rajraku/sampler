@@ -1,4 +1,43 @@
 #include "device.hh"
+#include "../deps/httplib.h"
+#include "../deps/json.hpp"
+#include <cstdlib>
+#include <sstream>
+#include <iomanip>
+
+using json = nlohmann::json;
+
+static void parse_server_url(std::string& host, int& port) {
+    host = "localhost";
+    port = 8080;
+    const char* url = std::getenv("SERVER_URL");
+    if (!url) return;
+    std::string s(url);
+    auto pfx = s.find("://");
+    if (pfx != std::string::npos) s = s.substr(pfx + 3);
+    auto colon = s.rfind(':');
+    if (colon != std::string::npos) {
+        host = s.substr(0, colon);
+        port = std::stoi(s.substr(colon + 1));
+    } else {
+        host = s;
+    }
+}
+
+static std::string current_timestamp() {
+    auto now = std::chrono::system_clock::now();
+    auto t   = std::chrono::system_clock::to_time_t(now);
+    std::ostringstream oss;
+    oss << std::put_time(std::gmtime(&t), "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+}
+
+static json make_reading(const std::string& device_name, const std::string& sensor_type,
+                         int value, const std::string& unit, const std::string& ts) {
+    return {{"sensor_id", device_name + "_" + sensor_type},
+            {"sensor_type", sensor_type}, {"device_name", device_name},
+            {"value", value}, {"unit", unit}, {"timestamp", ts}};
+}
 
 Device::Device(std::string device_name)
     : name(device_name),
@@ -12,14 +51,12 @@ Device::Device(std::string device_name)
       weight_enabled(false),
       exit_thread(false)
 {
-
 }
 
 Device::~Device()
 {
     if (!exit_thread.load())
         exit();
-
 }
 
 void
@@ -27,11 +64,10 @@ Device::exit()
 {
     exit_thread.store(true);
 
-    // Notify all threads to exit..
-    update_ready.notify_all();
+    queue_cv.notify_all();
 
-    if (telemetry_thread.joinable())
-        telemetry_thread.join();
+    if (sender_thread.joinable())
+        sender_thread.join();
 
     if (speed_thread.joinable())
         speed_thread.join();
@@ -43,22 +79,13 @@ Device::exit()
         temp_thread.join();
 }
 
-void 
+void
 Device::initialize()
 {
-    // Thread initialization..
-    // Start telemetry data sending thread..
-    telemetry_thread = std::thread(&Device::send_telemetry_data, this);
-
-    // Start Speed sensor thread..
-    speed_thread = std::thread(&Device::speed_sensor_update, this);    
-
-    // Start Weight sensor thread..
-    weight_thread = std::thread(&Device::weight_sensor_update, this);
-
-    // Start Temperature sensor thread..
-    temp_thread = std::thread(&Device::temperature_sensor_update, this);
-
+    sender_thread = std::thread(&Device::sender_loop, this);
+    speed_thread   = std::thread(&Device::speed_sensor_update, this);
+    weight_thread  = std::thread(&Device::weight_sensor_update, this);
+    temp_thread    = std::thread(&Device::temperature_sensor_update, this);
 }
 
 
@@ -94,28 +121,46 @@ Device::enable_weight(bool enable)
 
 
 void
-Device::send_telemetry_data()
+Device::sender_loop()
 {
+    std::string host;
+    int port;
+    parse_server_url(host, port);
+
     while (!exit_thread.load())
     {
+        std::vector<std::string> batch;
         {
-            // Wait for update condition..
-            std::unique_lock<std::mutex> lock(device_mutex);
-            update_ready.wait(lock);
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            queue_cv.wait(lock, [this] {
+                return !send_queue.empty() || exit_thread.load();
+            });
+            while (!send_queue.empty()) {
+                batch.push_back(std::move(send_queue.front()));
+                send_queue.pop();
+            }
         }
 
-        std::this_thread::sleep_for(std::chrono::seconds(2));
+        if (batch.empty()) continue;
 
-        // Send telemetry data logic..
-        // TODO:: Add logic to send the data to server using http client..
-        std::cout << "Sending telemetry data: "
-                  << name << " - "
-                  << "Speed: " << speed
-                  << ", Weight: " << weight
-                  << ", Temperature: " << temperature
-                  << std::endl;
+        // Build JSON array from pre-serialised strings
+        std::string payload = "[";
+        for (size_t i = 0; i < batch.size(); ++i) {
+            if (i) payload += ",";
+            payload += batch[i];
+        }
+        payload += "]";
+
+        std::cout << "Sending " << batch.size() << " reading(s)" << std::endl;
+
+        httplib::Client cli(host, port);
+        cli.set_connection_timeout(20);
+        auto res = cli.Post("/ingest", payload, "application/json");
+        if (!res || res->status != 201)
+            std::cerr << "Failed to post batch (" << batch.size() << " reading(s))" << std::endl;
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    
 }
 
 
@@ -128,10 +173,21 @@ Device::speed_sensor_update()
     while (!exit_thread.load())
     {
         std::this_thread::sleep_for(std::chrono::seconds(speed_freq));
-        
-        speed = random_val(min_num, max_num);
 
-        update_ready.notify_one();
+        int new_val = random_val(min_num, max_num);
+        {
+            std::lock_guard<std::mutex> lock(device_mutex);
+            if (new_val == speed) continue;
+            speed = new_val;
+        }
+
+        std::string entry = make_reading(name, "speed", new_val, "kmph",
+                                         current_timestamp()).dump();
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            send_queue.push(std::move(entry));
+        }
+        queue_cv.notify_one();
     }
 }
 
@@ -148,10 +204,21 @@ Device::weight_sensor_update()
 
         if (!weight_enabled.load())
             continue;
-        
-        weight = random_val(min_num, max_num);
 
-        update_ready.notify_one();
+        int new_val = random_val(min_num, max_num);
+        {
+            std::lock_guard<std::mutex> lock(device_mutex);
+            if (new_val == weight) continue;
+            weight = new_val;
+        }
+
+        std::string entry = make_reading(name, "weight", new_val, "kg",
+                                         current_timestamp()).dump();
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            send_queue.push(std::move(entry));
+        }
+        queue_cv.notify_one();
     }
 }
 
@@ -169,12 +236,22 @@ Device::temperature_sensor_update()
         if (!temp_enabled.load())
             continue;
 
-        temperature = random_val(min_num, max_num);
+        int new_val = random_val(min_num, max_num);
+        {
+            std::lock_guard<std::mutex> lock(device_mutex);
+            if (new_val == temperature) continue;
+            temperature = new_val;
+        }
 
-        update_ready.notify_one();
+        std::string entry = make_reading(name, "temperature", new_val, "celsius",
+                                         current_timestamp()).dump();
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            send_queue.push(std::move(entry));
+        }
+        queue_cv.notify_one();
     }
 }
-
 
 
 // Copied from google search for generating random numbers in C++
@@ -190,4 +267,3 @@ Device::random_val(int min_num, int max_num)
 
     return dist(random_seed);
 }
-
