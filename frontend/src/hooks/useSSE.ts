@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { SensorData } from '../types/sensor';
+import { SERVER_URL, PATH_STREAM, SSE_EVENT_SENSOR_UPDATE, SSE_EVENT_HEARTBEAT } from '../constants';
 
 export function useSSE(sensors: string[] = []) {
   const [data, setData] = useState<Record<string, SensorData>>({});
@@ -8,7 +9,7 @@ export function useSSE(sensors: string[] = []) {
 
   useEffect(() => {
     const sensorParam = sensors.length > 0 ? `?sensors=${sensors.join(',')}` : '';
-    const url = `http://localhost:8080/stream${sensorParam}`;
+    const url = `${SERVER_URL}${PATH_STREAM}${sensorParam}`;
 
     console.log('Connecting to SSE:', url);
 
@@ -20,7 +21,7 @@ export function useSSE(sensors: string[] = []) {
       setError(null);
     };
 
-    eventSource.addEventListener('sensor_update', (e: MessageEvent) => {
+    eventSource.addEventListener(SSE_EVENT_SENSOR_UPDATE, (e: MessageEvent) => {
       try {
         const sensorData: SensorData = JSON.parse(e.data);
         setData(prev => ({
@@ -32,7 +33,7 @@ export function useSSE(sensors: string[] = []) {
       }
     });
 
-    eventSource.addEventListener('heartbeat', (e: MessageEvent) => {
+    eventSource.addEventListener(SSE_EVENT_HEARTBEAT, (e: MessageEvent) => {
       console.log('Heartbeat:', e.data);
     });
 

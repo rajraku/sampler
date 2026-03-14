@@ -11,6 +11,7 @@
 #include <set>
 
 #include "config.hh"
+#include "constants.hh"
 #include "db/postgres_client.hh"
 #include "pubsub/redis_client.hh"
 #include "sse/sse_manager.hh"
@@ -67,11 +68,11 @@ private:
             res.set(http::field::access_control_allow_headers, "Content-Type");
             res.prepare_payload();
             do_write(std::move(res));
-        } else if (path == "/ingest") {
+        } else if (path == constants::PATH_INGEST) {
             do_write(state_->ingest->handle(req_));
-        } else if (path == "/health") {
+        } else if (path == constants::PATH_HEALTH) {
             do_write(state_->health->handle(req_));
-        } else if (path == "/stream") {
+        } else if (path == constants::PATH_STREAM) {
             // SSE: write headers synchronously, then hand the socket to SSEManager.
             // The session ends here — SSEManager owns the socket from this point on.
             auto sock = std::make_shared<tcp::socket>(std::move(socket_));

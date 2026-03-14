@@ -2,9 +2,11 @@
 #define SERVER_HANDLERS_HANDLER_UTILS_HH
 
 #include "../../common/json_utils.hh"
+#include "../constants.hh"
 #include <boost/beast/http.hpp>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace http = boost::beast::http;
 
@@ -12,11 +14,11 @@ namespace http = boost::beast::http;
 template<class Body, class Allocator>
 http::response<http::string_body>
 make_response(const http::request<Body, http::basic_fields<Allocator>>& req,
-              const std::string& content_type) {
+              std::string_view content_type) {
     http::response<http::string_body> res;
     res.version(req.version());
     res.keep_alive(req.keep_alive());
-    res.set(http::field::server, "IoT-Server");
+    res.set(http::field::server, constants::SERVER_NAME);
     res.set(http::field::content_type, content_type);
     return res;
 }
@@ -25,7 +27,7 @@ make_response(const http::request<Body, http::basic_fields<Allocator>>& req,
 template<class Body, class Allocator>
 http::response<http::string_body>
 make_json_response(const http::request<Body, http::basic_fields<Allocator>>& req) {
-    return make_response(req, "application/json");
+    return make_response(req, constants::CONTENT_TYPE_JSON);
 }
 
 // Return a complete JSON error response with the given HTTP status.

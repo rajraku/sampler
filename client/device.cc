@@ -1,4 +1,5 @@
 #include "device.hh"
+#include "constants.hh"
 #include "../deps/httplib.h"
 #include "../deps/json.hpp"
 #include <cstdlib>
@@ -8,8 +9,8 @@
 using json = nlohmann::json;
 
 static void parse_server_url(std::string& host, int& port) {
-    host = "localhost";
-    port = 8080;
+    host = constants::SERVER_DEFAULT_HOST;
+    port = constants::SERVER_DEFAULT_PORT;
     const char* url = std::getenv("SERVER_URL");
     if (!url) return;
     std::string s(url);
@@ -41,12 +42,12 @@ static json make_reading(const std::string& device_name, const std::string& sens
 
 Device::Device(std::string device_name)
     : name(device_name),
-      speed_freq(1),
-      weight_freq(1),
-      temp_freq(1),
-      speed(26),
-      weight(6000),
-      temperature(24),
+      speed_freq(constants::DEFAULT_SENSOR_FREQ),
+      weight_freq(constants::DEFAULT_SENSOR_FREQ),
+      temp_freq(constants::DEFAULT_SENSOR_FREQ),
+      speed(constants::SPEED_INITIAL),
+      weight(constants::WEIGHT_INITIAL),
+      temperature(constants::TEMP_INITIAL),
       temp_enabled(false),
       weight_enabled(false),
       exit_thread(false)
@@ -154,12 +155,12 @@ Device::sender_loop()
         std::cout << "Sending " << batch.size() << " reading(s)" << std::endl;
 
         httplib::Client cli(host, port);
-        cli.set_connection_timeout(20);
-        auto res = cli.Post("/ingest", payload, "application/json");
+        cli.set_connection_timeout(constants::CONNECTION_TIMEOUT_SEC);
+        auto res = cli.Post(constants::SERVER_INGEST_PATH, payload, constants::CONTENT_TYPE_JSON);
         if (!res || res->status != 201)
             std::cerr << "Failed to post batch (" << batch.size() << " reading(s))" << std::endl;
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(constants::SENDER_SLEEP_MS));
     }
 }
 
@@ -167,22 +168,19 @@ Device::sender_loop()
 void
 Device::speed_sensor_update()
 {
-    int min_num = 25;
-    int max_num = 45;
-
     while (!exit_thread.load())
     {
         std::this_thread::sleep_for(std::chrono::seconds(speed_freq));
 
-        int new_val = random_val(min_num, max_num);
+        int new_val = random_val(constants::SPEED_MIN, constants::SPEED_MAX);
         {
             std::lock_guard<std::mutex> lock(device_mutex);
             if (new_val == speed) continue;
             speed = new_val;
         }
 
-        std::string entry = make_reading(name, "speed", new_val, "kmph",
-                                         current_timestamp()).dump();
+        std::string entry = make_reading(name, constants::SPEED_TYPE, new_val,
+                                         constants::SPEED_UNIT, current_timestamp()).dump();
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
             send_queue.push(std::move(entry));
@@ -195,9 +193,6 @@ Device::speed_sensor_update()
 void
 Device::weight_sensor_update()
 {
-    int min_num = 6000;
-    int max_num = 6005;
-
     while (!exit_thread.load())
     {
         std::this_thread::sleep_for(std::chrono::seconds(weight_freq));
@@ -205,15 +200,15 @@ Device::weight_sensor_update()
         if (!weight_enabled.load())
             continue;
 
-        int new_val = random_val(min_num, max_num);
+        int new_val = random_val(constants::WEIGHT_MIN, constants::WEIGHT_MAX);
         {
             std::lock_guard<std::mutex> lock(device_mutex);
             if (new_val == weight) continue;
             weight = new_val;
         }
 
-        std::string entry = make_reading(name, "weight", new_val, "kg",
-                                         current_timestamp()).dump();
+        std::string entry = make_reading(name, constants::WEIGHT_TYPE, new_val,
+                                         constants::WEIGHT_UNIT, current_timestamp()).dump();
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
             send_queue.push(std::move(entry));
@@ -226,9 +221,6 @@ Device::weight_sensor_update()
 void
 Device::temperature_sensor_update()
 {
-    int min_num = 20;
-    int max_num = 30;
-
     while (!exit_thread.load())
     {
         std::this_thread::sleep_for(std::chrono::seconds(temp_freq));
@@ -236,15 +228,15 @@ Device::temperature_sensor_update()
         if (!temp_enabled.load())
             continue;
 
-        int new_val = random_val(min_num, max_num);
+        int new_val = random_val(constants::TEMP_MIN, constants::TEMP_MAX);
         {
             std::lock_guard<std::mutex> lock(device_mutex);
             if (new_val == temperature) continue;
             temperature = new_val;
         }
 
-        std::string entry = make_reading(name, "temperature", new_val, "celsius",
-                                         current_timestamp()).dump();
+        std::string entry = make_reading(name, constants::TEMP_TYPE, new_val,
+                                         constants::TEMP_UNIT, current_timestamp()).dump();
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
             send_queue.push(std::move(entry));

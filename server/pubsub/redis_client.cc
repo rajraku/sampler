@@ -1,13 +1,14 @@
 #include "redis_client.hh"
+#include "../constants.hh"
 
 RedisClient::RedisClient(const std::string& url) : running(false)
 {
     try {
-        std::string host = "127.0.0.1";
-        int port = 6379;
-        auto prefix = url.find("tcp://");
+        std::string host = std::string(constants::REDIS_DEFAULT_HOST);
+        int port = constants::REDIS_DEFAULT_PORT;
+        auto prefix = url.find(constants::REDIS_URL_SCHEME);
         if (prefix != std::string::npos) {
-            std::string addr = url.substr(prefix + 6);
+            std::string addr = url.substr(prefix + constants::REDIS_URL_SCHEME.size());
             auto colon = addr.rfind(':');
             if (colon != std::string::npos) {
                 host = addr.substr(0, colon);
@@ -18,7 +19,7 @@ RedisClient::RedisClient(const std::string& url) : running(false)
         ConnectionOptions opts;
         opts.host = host;
         opts.port = port;
-        opts.socket_timeout = std::chrono::milliseconds(100);
+        opts.socket_timeout = std::chrono::milliseconds(constants::REDIS_SOCKET_TIMEOUT_MS);
 
         redis = std::make_unique<Redis>(opts);
         subscriber = std::make_unique<Subscriber>(redis->subscriber());

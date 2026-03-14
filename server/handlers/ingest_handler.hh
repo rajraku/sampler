@@ -49,7 +49,7 @@ public:
                 bool inserted = db_client->insertEvent(data);
                 bool upserted = db_client->upsertLatest(data);
                 if (inserted && upserted) {
-                    redis_client->publish("sensor:" + data.sensor_id, json(data).dump());
+                    redis_client->publish(std::string(constants::REDIS_CHANNEL_PREFIX) + data.sensor_id, json(data).dump());
                     std::cout << "Ingested: " << data.sensor_id
                               << " = " << data.value << " " << data.unit << std::endl;
                     ++ok_count;

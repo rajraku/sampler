@@ -1,4 +1,5 @@
 #include "postgres_client.hh"
+// constants are transitively included via postgres_client.hh
 
 PostgresClient::PostgresClient(const std::string& conn_string, size_t pool_sz)
     : connection_string(conn_string), pool_size(pool_sz), shutdown(false)
@@ -24,12 +25,13 @@ PostgresClient::~PostgresClient()
 std::unique_ptr<pqxx::connection>
 PostgresClient::fresh_connection()
 {
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < constants::DB_MAX_RETRIES; ++i) {
         try {
             return std::make_unique<pqxx::connection>(connection_string);
         } catch (const std::exception& e) {
             std::cerr << "Reconnect attempt " << (i + 1) << " failed: " << e.what() << std::endl;
-            if (i < 2) std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (i < constants::DB_MAX_RETRIES - 1)
+                std::this_thread::sleep_for(std::chrono::milliseconds(constants::DB_RECONNECT_SLEEP_MS));
         }
     }
     return nullptr;

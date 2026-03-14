@@ -2,6 +2,7 @@
 #define SERVER_DB_POSTGRES_CLIENT_HH
 
 #include "../../common/types.hh"
+#include "../constants.hh"
 #include <pqxx/pqxx>
 #include <string>
 #include <memory>
@@ -48,7 +49,7 @@ private:
     template<typename Fn>
     bool
     execute_with_retry(Fn&& fn) {
-        for (int attempt = 0; attempt < 2; ++attempt) {
+        for (int attempt = 0; attempt < constants::DB_EXECUTE_MAX_ATTEMPTS; ++attempt) {
             auto conn = acquire_connection();
             if (!conn) return false;
             try {
@@ -59,7 +60,7 @@ private:
                 std::cerr << "DB error (attempt " << (attempt + 1) << "): " << e.what() << std::endl;
                 auto replacement = fresh_connection();
                 if (replacement) release_connection(std::move(replacement));
-                if (attempt == 0) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                if (attempt == 0) std::this_thread::sleep_for(std::chrono::milliseconds(constants::DB_RETRY_SLEEP_MS));
             }
         }
         return false;
@@ -67,7 +68,7 @@ private:
 
 public:
     // Open pool_size connections to the database described by connection_string.
-    PostgresClient(const std::string& connection_string, size_t pool_size = 10);
+    PostgresClient(const std::string& connection_string, size_t pool_size = constants::DB_POOL_SIZE_DEFAULT);
 
     ~PostgresClient();
 

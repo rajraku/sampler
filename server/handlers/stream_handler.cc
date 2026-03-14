@@ -1,4 +1,5 @@
 #include "stream_handler.hh"
+#include "../constants.hh"
 #include <sstream>
 
 StreamHandler::StreamHandler(SSEManager* sse_mgr, PostgresClient* db)
@@ -16,10 +17,10 @@ StreamHandler::parse_sensor_filters(const std::string& target)
 
     std::string query = target.substr(query_pos + 1);
 
-    size_t sensors_pos = query.find("sensors=");
+    size_t sensors_pos = query.find(constants::QUERY_PARAM_SENSORS);
     if (sensors_pos == std::string::npos) return filters;
 
-    std::string sensors_str = query.substr(sensors_pos + 8); // skip "sensors="
+    std::string sensors_str = query.substr(sensors_pos + constants::QUERY_PARAM_SENSORS.size());
 
     std::istringstream ss(sensors_str);
     std::string sensor;

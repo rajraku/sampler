@@ -1,4 +1,5 @@
 #include "sse_manager.hh"
+#include "../constants.hh"
 
 // --- SSEConnection ---
 
@@ -38,7 +39,7 @@ SSEConnection::is_alive() const
 SSEManager::SSEManager(RedisClient* client)
     : next_connection_id(1), next_event_id(1), redis_client(client)
 {
-    redis_client->subscribe_pattern("sensor:*",
+    redis_client->subscribe_pattern(std::string(constants::REDIS_SUBSCRIBE_PATTERN),
         [this](const std::string& channel, const std::string& message) {
             this->on_redis_message(channel, message);
         });
@@ -85,14 +86,14 @@ SSEManager::send_initial_state(size_t conn_id, const std::vector<SensorData>& in
 
     for (const auto& data : initial_data) {
         json j = data;
-        conn->send_sse("sensor_update", j.dump(), next_event_id++);
+        conn->send_sse(std::string(constants::SSE_EVENT_SENSOR_UPDATE), j.dump(), next_event_id++);
     }
 }
 
 void
 SSEManager::on_redis_message(const std::string& channel, const std::string& message)
 {
-    std::string sensor_id = channel.substr(7); // Remove "sensor:" prefix
+    std::string sensor_id = channel.substr(constants::REDIS_CHANNEL_PREFIX.size());
 
     std::lock_guard<std::mutex> lock(connections_mutex);
 
@@ -109,7 +110,7 @@ SSEManager::on_redis_message(const std::string& channel, const std::string& mess
         if (conn->sensor_filters.empty() ||
             conn->sensor_filters.count(sensor_id) > 0) {
 
-            bool ok = conn->send_sse("sensor_update", message, next_event_id++);
+            bool ok = conn->send_sse(std::string(constants::SSE_EVENT_SENSOR_UPDATE), message, next_event_id++);
             if (!ok) dead.push_back(conn->id);
         }
     }
@@ -131,7 +132,7 @@ SSEManager::send_heartbeat()
     for (auto& pair : connections) {
         auto& conn = pair.second;
         if (conn->is_alive())
-            conn->send_sse("heartbeat", heartbeat_msg, next_event_id++);
+            conn->send_sse(std::string(constants::SSE_EVENT_HEARTBEAT), heartbeat_msg, next_event_id++);
     }
 }
 
