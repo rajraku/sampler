@@ -1,9 +1,9 @@
 #ifndef SERVER_HANDLERS_HEALTH_HANDLER_HH
 #define SERVER_HANDLERS_HEALTH_HANDLER_HH
 
+#include "handler_utils.hh"
 #include "../db/postgres_client.hh"
 #include "../pubsub/redis_client.hh"
-#include "../../common/json_utils.hh"
 #include <boost/beast/http.hpp>
 
 namespace http = boost::beast::http;
@@ -27,18 +27,8 @@ public:
     http::response<http::string_body>
     handle(const http::request<Body, http::basic_fields<Allocator>>& req) {
 
-        http::response<http::string_body> res;
-        res.version(req.version());
-        res.keep_alive(req.keep_alive());
-        res.set(http::field::server, "IoT-Server");
-        res.set(http::field::content_type, "application/json");
-
-        if (req.method() != http::verb::get) {
-            res.result(http::status::method_not_allowed);
-            res.body() = R"({"error":"Method not allowed"})";
-            res.prepare_payload();
-            return res;
-        }
+        if (auto err = check_method(req, http::verb::get)) return *err;
+        auto res = make_json_response(req);
 
         bool db_healthy    = db_client->healthCheck();
         bool redis_healthy = redis_client->healthCheck();

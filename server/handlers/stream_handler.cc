@@ -1,4 +1,5 @@
 #include "stream_handler.hh"
+#include <sstream>
 
 StreamHandler::StreamHandler(SSEManager* sse_mgr, PostgresClient* db)
     : sse_manager(sse_mgr), db_client(db)

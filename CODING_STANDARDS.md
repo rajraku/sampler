@@ -123,6 +123,47 @@ private:
 
 ---
 
+### HTTP handlers
+
+Every HTTP handler follows the same structure:
+
+- One `.hh` file with the class declaration and the template `handle()` body.
+- One `.cc` file with the constructor and any non-template helper methods.
+- The handler is registered in `AppState` in `main.cc` and constructed in `main()`.
+
+**Include `handler_utils.hh`** — never repeat the response initialisation boilerplate inline:
+
+```cpp
+#include "handler_utils.hh"
+
+template<class Body, class Allocator>
+http::response<http::string_body>
+handle(const http::request<Body, http::basic_fields<Allocator>>& req) {
+
+    // Guard the expected HTTP verb — returns 405 automatically if wrong.
+    if (auto err = check_method(req, http::verb::post)) return *err;
+
+    // Create a response with version, keep-alive, and server headers pre-set.
+    auto res = make_json_response(req);
+
+    // ... handler logic ...
+
+    // Build a complete JSON error response in one call.
+    return make_error(req, http::status::bad_request, "Invalid JSON", e.what());
+}
+```
+
+Available helpers in `handler_utils.hh`:
+
+| Helper | Purpose |
+|--------|---------|
+| `make_response(req, content_type)` | Base response with common headers |
+| `make_json_response(req)` | Shorthand for `application/json` content-type |
+| `make_error(req, status, msg[, details])` | Complete JSON error response, ready to return |
+| `check_method(req, verb)` | Returns `std::optional<response>` (405) if method mismatches |
+
+---
+
 ### Misc
 - Use `std::` explicitly; avoid `using namespace std` in headers.
 - Prefer `std::make_unique` / `std::make_shared` over raw `new`.

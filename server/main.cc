@@ -14,8 +14,10 @@
 #include "db/postgres_client.hh"
 #include "pubsub/redis_client.hh"
 #include "sse/sse_manager.hh"
+#include "handlers/handler_utils.hh"
 #include "handlers/health_handler.hh"
 #include "handlers/ingest_handler.hh"
+#include "handlers/stream_handler.hh"
 
 namespace beast = boost::beast;
 namespace http  = beast::http;
@@ -24,11 +26,12 @@ using tcp = net::ip::tcp;
 
 // Shared application state passed to every session
 struct AppState {
-    std::shared_ptr<PostgresClient> db;
-    std::shared_ptr<RedisClient>    redis;
-    std::shared_ptr<SSEManager>     sse;
-    std::shared_ptr<IngestHandler>  ingest;
-    std::shared_ptr<HealthHandler>  health;
+    std::shared_ptr<PostgresClient>  db;
+    std::shared_ptr<RedisClient>     redis;
+    std::shared_ptr<SSEManager>      sse;
+    std::shared_ptr<IngestHandler>   ingest;
+    std::shared_ptr<HealthHandler>   health;
+    std::shared_ptr<StreamHandler>   stream;
 };
 
 class Session : public std::enable_shared_from_this<Session> {
@@ -69,50 +72,27 @@ private:
         } else if (path == "/health") {
             do_write(state_->health->handle(req_));
         } else if (path == "/stream") {
-            handle_sse(target);
+            // SSE: write headers synchronously, then hand the socket to SSEManager.
+            // The session ends here — SSEManager owns the socket from this point on.
+            auto sock = std::make_shared<tcp::socket>(std::move(socket_));
+
+            const std::string headers =
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/event-stream\r\n"
+                "Cache-Control: no-cache\r\n"
+                "Connection: keep-alive\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "\r\n";
+
+            beast::error_code ec;
+            net::write(*sock, net::buffer(headers), ec);
+            if (!ec) state_->stream->handle(req_, sock);
         } else {
             http::response<http::string_body> res{http::status::not_found, req_.version()};
             res.set(http::field::content_type, "text/plain");
             res.body() = "Not found\n";
             res.prepare_payload();
             do_write(std::move(res));
-        }
-    }
-
-    // SSE: write headers synchronously, then hand the socket to SSEManager.
-    // The session ends here — SSEManager owns the socket from this point on.
-    void handle_sse(const std::string& target) {
-        auto sock = std::make_shared<tcp::socket>(std::move(socket_));
-
-        const std::string headers =
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/event-stream\r\n"
-            "Cache-Control: no-cache\r\n"
-            "Connection: keep-alive\r\n"
-            "Access-Control-Allow-Origin: *\r\n"
-            "\r\n";
-
-        beast::error_code ec;
-        net::write(*sock, net::buffer(headers), ec);
-        if (ec) return;
-
-        // Parse optional ?sensors=id1,id2 filter
-        std::set<std::string> filters;
-        auto q = target.find("sensors=");
-        if (q != std::string::npos) {
-            std::istringstream ss(target.substr(q + 8));
-            std::string s;
-            while (std::getline(ss, s, ','))
-                if (!s.empty()) filters.insert(s);
-        }
-
-        size_t conn_id = state_->sse->register_connection(sock, filters);
-
-        // Push current DB state to this new subscriber
-        if (!filters.empty()) {
-            std::vector<std::string> fv(filters.begin(), filters.end());
-            auto initial = state_->db->getLatest(fv);
-            state_->sse->send_initial_state(conn_id, initial);
         }
     }
 
@@ -167,6 +147,7 @@ int main() {
         state->sse    = std::make_shared<SSEManager>(state->redis.get());
         state->ingest = std::make_shared<IngestHandler>(state->db.get(), state->redis.get());
         state->health = std::make_shared<HealthHandler>(state->db.get(), state->redis.get());
+        state->stream = std::make_shared<StreamHandler>(state->sse.get(), state->db.get());
 
         net::io_context ioc{1};
         auto listener = std::make_shared<Listener>(
